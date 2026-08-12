@@ -1,0 +1,10 @@
+{
+  "description": "Automates execution of attached prompts to streamline workflows and enhance productivity for users needing quick, accurate task completion.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
