@@ -14,7 +14,7 @@ interface Calculation {
   time: string
   a1: number
   a2: number
-  a3: number
+  a3Notes: number[]
   final: number
   approved: boolean
 }
@@ -22,18 +22,19 @@ interface Calculation {
 interface GradeInputs {
   a1: string
   a2: string
-  a3: string
+  a3Notes: string[]
 }
 
 interface ValidationErrors {
   a1?: string
   a2?: string
-  a3?: string
+  a3Notes?: string[]
 }
 
 interface Result {
   a1: number
   a2: number
+  a3Notes: number[]
   a3: number
   percentA1: number
   percentA2: number
@@ -115,17 +116,34 @@ function validate(inputs: GradeInputs): ValidationErrors {
   else if (!/^\d+$/.test(inputs.a2)) errors.a2 = 'Use apenas números inteiros.'
   else if (Number(inputs.a2) > 30) errors.a2 = 'A A2 vale no máximo 30 pontos.'
 
-  if (inputs.a3.trim() === '') errors.a3 = 'Informe a nota da A3.'
-  else if (!/^\d+$/.test(inputs.a3)) errors.a3 = 'Use apenas números inteiros.'
-  else if (Number(inputs.a3) > 40) errors.a3 = 'A A3 vale no máximo 40 pontos.'
+  if (inputs.a3Notes.length === 0 || inputs.a3Notes.every(n => n.trim() === '')) {
+    errors.a3Notes = ['Informe pelo menos uma nota da A3.']
+  } else {
+    const a3Errors: string[] = []
+    let a3Total = 0
+    inputs.a3Notes.forEach((note, idx) => {
+      if (note.trim() !== '') {
+        if (!/^\d+$/.test(note)) {
+          a3Errors[idx] = 'Use apenas números inteiros.'
+        } else {
+          const val = Number(note)
+          a3Total += val
+          if (val < 0) a3Errors[idx] = 'O valor não pode ser negativo.'
+          else if (a3Total > 40) a3Errors[idx] = 'A soma total da A3 não pode exceder 40 pontos.'
+        }
+      }
+    })
+    if (a3Errors.length > 0) errors.a3Notes = a3Errors
+  }
 
   return errors
 }
 
-function calculate(a1: number, a2: number, a3: number): Result {
+function calculate(a1: number, a2: number, a3Notes: number[]): Result {
+  const a3 = a3Notes.reduce((sum, note) => sum + note, 0)
   const final = a1 + a2 + a3
   return {
-    a1, a2, a3,
+    a1, a2, a3Notes, a3,
     percentA1: Math.round((a1 / 30) * 100),
     percentA2: Math.round((a2 / 30) * 100),
     percentA3: Math.round((a3 / 40) * 100),
@@ -170,7 +188,10 @@ function formatDate(date: Date) {
 
 function buildSpeechText(result: Result): string {
   const status = result.approved ? 'aprovado' : 'em recuperação'
-  return `Resultado do cálculo de notas. Nota A1: ${result.a1} de 30 pontos, equivalência de ${result.percentA1} por cento. Nota A2: ${result.a2} de 30 pontos, equivalência de ${result.percentA2} por cento. Nota A3: ${result.a3} de 40 pontos, equivalência de ${result.percentA3} por cento. Nota final: ${result.final} de 100 pontos. Situação: ${status}. A média mínima para aprovação é ${PASSING_GRADE} pontos.`
+  const a3Details = result.a3Notes.length > 1 
+    ? `notas adicionais da A3: ${result.a3Notes.join(', ')} pontos, totalizando ${result.a3} de 40 pontos`
+    : `Nota A3: ${result.a3} de 40 pontos`
+  return `Resultado do cálculo de notas. Nota A1: ${result.a1} de 30 pontos, equivalência de ${result.percentA1} por cento. Nota A2: ${result.a2} de 30 pontos, equivalência de ${result.percentA2} por cento. ${a3Details}, equivalência de ${result.percentA3} por cento. Nota final: ${result.final} de 100 pontos. Situação: ${status}. A média mínima para aprovação é ${PASSING_GRADE} pontos.`
 }
 
 function formatRA(raw: string): string {
@@ -383,6 +404,77 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
+function A3NotesInput({ notes, errors, onChange, onBlur, onAddNote, onRemoveNote }: {
+  notes: string[]
+  errors?: string[]
+  onChange: (value: string, index: number) => void
+  onBlur: (index: number) => void
+  onAddNote: () => void
+  onRemoveNote: (index: number) => void
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+        <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151', letterSpacing: '0.04em', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>A3 - Notas adicionais</label>
+        <button
+          type="button"
+          onClick={onAddNote}
+          style={{ fontSize: '0.75rem', padding: '0.35rem 0.625rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '0.375rem', cursor: 'pointer', fontWeight: 500 }}
+        >
+          + Adicionar nota
+        </button>
+      </div>
+      {notes.map((note, idx) => (
+        <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={40}
+            value={note}
+            onChange={(e) => onChange(e.target.value, idx)}
+            onBlur={() => onBlur(idx)}
+            placeholder="—"
+            style={{
+              flex: 1,
+              padding: '0.75rem 1rem',
+              fontSize: '1rem',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 400,
+              color: '#1a1a2e',
+              background: errors?.[idx] ? '#fff5f5' : '#f9f8f6',
+              border: `2px solid ${errors?.[idx] ? '#dc2626' : '#d1d5db'}`,
+              borderRadius: '0.5rem',
+              outline: 'none',
+              textAlign: 'center',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
+            }}
+            onFocus={(e) => { e.currentTarget.style.borderColor = '#6b5c38'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(107,92,56,0.15)' }}
+            onBlurCapture={(e) => { e.currentTarget.style.borderColor = errors?.[idx] ? '#dc2626' : '#d1d5db'; e.currentTarget.style.boxShadow = 'none' }}
+          />
+          {notes.length > 1 && (
+            <button
+              type="button"
+              onClick={() => onRemoveNote(idx)}
+              style={{ padding: '0.75rem 0.75rem', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>0 a 40 pontos (soma total)</span>
+      {errors && errors.length > 0 && errors.some(e => e) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {errors.map((err, idx) => err && (
+            <p key={idx} role="alert" style={{ fontSize: '0.78rem', color: '#dc2626', marginTop: 2 }}>⚠ Nota {idx + 1}: {err}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GradeField({ id, label, max, value, error, onChange, onBlur }: {
   id: string; label: string; max: number; value: string
   error?: string; onChange: (v: string) => void; onBlur: () => void
@@ -494,6 +586,7 @@ function ResultCard({ result, onSpeak, speaking }: { result: Result; onSpeak: ()
 }
 
 function HistoryItem({ calc, onReuse, onDelete }: { calc: Calculation; onReuse: (c: Calculation) => void; onDelete: (id: string) => void }) {
+  const a3Total = calc.a3Notes.reduce((sum, n) => sum + n, 0)
   return (
     <div className="animate-fade-in" style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderLeft: `4px solid ${calc.approved ? '#22c55e' : '#f97316'}`, borderRadius: '0.5rem', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -503,7 +596,7 @@ function HistoryItem({ calc, onReuse, onDelete }: { calc: Calculation; onReuse: 
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '0.8125rem', color: '#374151' }}>A1: <b>{calc.a1}</b> · A2: <b>{calc.a2}</b> · A3: <b>{calc.a3}</b></span>
+        <span style={{ fontSize: '0.8125rem', color: '#374151' }}>A1: <b>{calc.a1}</b> · A2: <b>{calc.a2}</b> · A3: <b>{a3Total}</b></span>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: '1rem', color: '#1a1a2e' }}>{calc.final}/100</span>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -569,7 +662,7 @@ function AccessibilityBar({ zoom, zoomIn, zoomOut, zoomReset, canZoomIn, canZoom
 export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
-  const [inputs, setInputs] = useState<GradeInputs>({ a1: '', a2: '', a3: '' })
+  const [inputs, setInputs] = useState<GradeInputs>({ a1: '', a2: '', a3Notes: [''] })
   const [errors, setErrors] = useState<ValidationErrors>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [result, setResult] = useState<Result | null>(null)
@@ -610,41 +703,61 @@ export default function App() {
     clearSession()
     setUser(null)
     setResult(null)
-    setInputs({ a1: '', a2: '', a3: '' })
+    setInputs({ a1: '', a2: '', a3Notes: [''] })
     setErrors({}); setTouched({})
     setHistory([])
     setShowConfirm(null)
     setShowUserMenu(false)
   }
 
-  function handleChange(field: keyof GradeInputs, value: string) {
-    if (value !== '' && !/^\d+$/.test(value)) return
-    setInputs((prev) => ({ ...prev, [field]: value }))
-    if (touched[field]) {
-      const errs = validate({ ...inputs, [field]: value })
+  function handleChange(field: keyof GradeInputs, value: string, index?: number) {
+    if (field === 'a3Notes' && index !== undefined) {
+      if (value !== '' && !/^\d+$/.test(value)) return
+      setInputs((prev) => {
+        const newA3Notes = [...prev.a3Notes]
+        newA3Notes[index] = value
+        return { ...prev, a3Notes: newA3Notes }
+      })
+      if (touched[`a3Notes.${index}`]) {
+        const errs = validate({ ...inputs, a3Notes: [...inputs.a3Notes.slice(0, index), value, ...inputs.a3Notes.slice(index + 1)] })
+        setErrors((prev) => ({ ...prev, a3Notes: errs.a3Notes }))
+      }
+    } else {
+      if (value !== '' && !/^\d+$/.test(value)) return
+      setInputs((prev) => ({ ...prev, [field]: value }))
+      if (touched[field]) {
+        const errs = validate({ ...inputs, [field]: value })
+        setErrors((prev) => ({ ...prev, [field]: errs[field as keyof ValidationErrors] }))
+      }
+    }
+  }
+
+  function handleBlur(field: keyof GradeInputs, index?: number) {
+    const key = index !== undefined ? `${field}.${index}` : field
+    setTouched((prev) => ({ ...prev, [key]: true }))
+    const errs = validate(inputs)
+    if (field === 'a3Notes' && index !== undefined) {
+      setErrors((prev) => ({ ...prev, a3Notes: errs.a3Notes }))
+    } else {
       setErrors((prev) => ({ ...prev, [field]: errs[field as keyof ValidationErrors] }))
     }
   }
 
-  function handleBlur(field: keyof GradeInputs) {
-    setTouched((prev) => ({ ...prev, [field]: true }))
-    const errs = validate(inputs)
-    setErrors((prev) => ({ ...prev, [field]: errs[field as keyof ValidationErrors] }))
-  }
-
   function handleSubmit() {
     if (!user) return
-    setTouched({ a1: true, a2: true, a3: true })
+    const allFields = { a1: true, a2: true, ...Object.fromEntries(inputs.a3Notes.map((_, i) => [`a3Notes.${i}`, true])) }
+    setTouched(allFields)
     const errs = validate(inputs)
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
-    const a1 = Number(inputs.a1), a2 = Number(inputs.a2), a3 = Number(inputs.a3)
-    const res = calculate(a1, a2, a3)
+    const a1 = Number(inputs.a1), a2 = Number(inputs.a2)
+    const a3Notes = inputs.a3Notes.filter(n => n.trim() !== '').map(n => Number(n))
+    const res = calculate(a1, a2, a3Notes)
     setResult(res)
 
     const { date, time } = formatDate(new Date())
-    const calc: Calculation = { id: `${Date.now()}`, date, time, a1, a2, a3, final: res.final, approved: res.approved }
+    const calc: Calculation = { id: `${Date.now()}`, date, time, a1, a2, a3Notes, final: res.final, approved: res.approved }
     saveCalculation(user.ra, calc)
     setHistory(getCalculationHistory(user.ra))
     setSavedFlash(true)
@@ -653,7 +766,7 @@ export default function App() {
   }
 
   function handleReuse(calc: Calculation) {
-    setInputs({ a1: String(calc.a1), a2: String(calc.a2), a3: String(calc.a3) })
+    setInputs({ a1: String(calc.a1), a2: String(calc.a2), a3Notes: calc.a3Notes.map(n => String(n)) })
     setResult(null); setErrors({}); setTouched({}); setShowHistory(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -803,10 +916,19 @@ export default function App() {
         {/* Input form */}
         <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '0.875rem', padding: '1.75rem', marginBottom: '1.5rem' }}>
           <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#9ca3af', marginBottom: '1.25rem' }}>Informe suas notas</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="grade-grid" onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}>
-            <GradeField id="a1" label="A1" max={30} value={inputs.a1} error={errors.a1} onChange={(v) => handleChange('a1', v)} onBlur={() => handleBlur('a1')} />
-            <GradeField id="a2" label="A2" max={30} value={inputs.a2} error={errors.a2} onChange={(v) => handleChange('a2', v)} onBlur={() => handleBlur('a2')} />
-            <GradeField id="a3" label="A3" max={40} value={inputs.a3} error={errors.a3} onChange={(v) => handleChange('a3', v)} onBlur={() => handleBlur('a3')} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }} onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '1rem' }}>
+              <GradeField id="a1" label="A1" max={30} value={inputs.a1} error={errors.a1} onChange={(v) => handleChange('a1', v)} onBlur={() => handleBlur('a1')} />
+              <GradeField id="a2" label="A2" max={30} value={inputs.a2} error={errors.a2} onChange={(v) => handleChange('a2', v)} onBlur={() => handleBlur('a2')} />
+            </div>
+            <A3NotesInput
+              notes={inputs.a3Notes}
+              errors={errors.a3Notes}
+              onChange={(v, idx) => handleChange('a3Notes', v, idx)}
+              onBlur={(idx) => handleBlur('a3Notes', idx)}
+              onAddNote={() => setInputs((prev) => ({ ...prev, a3Notes: [...prev.a3Notes, ''] }))}
+              onRemoveNote={(idx) => setInputs((prev) => ({ ...prev, a3Notes: prev.a3Notes.filter((_, i) => i !== idx) }))}
+            />
           </div>
           <button
             onClick={handleSubmit}
